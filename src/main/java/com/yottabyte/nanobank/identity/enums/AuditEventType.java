@@ -1,0 +1,13 @@
+package com.yottabyte.nanobank.identity.enums;
+
+public enum AuditEventType {
+
+    ONBOARDING_STARTED,
+    VERIFICATION_COMPLETED,
+    STEP_UP_REQUESTED,
+    MANUAL_REVIEW_CREATED,
+    MANUAL_REVIEW_COMPLETED,
+    ONBOARDING_APPROVED,
+    ONBOARDING_REJECTED,
+    CUSTOMER_CREATED
+}
