@@ -151,8 +151,9 @@ Start PostgreSQL:
 ```bash
 docker run -d --name nanobank-postgres --network nanobank \
   -e POSTGRES_DB=nanobank_identity \
+  -e POSTGRES_USER=postgres \
   -e POSTGRES_PASSWORD=change-me \
-  postgres:18
+  postgres:18-alpine
 ```
 
 Start the Identity Service:
@@ -308,13 +309,13 @@ Example request:
 }
 ```
 
-Save it as `body.json` and send it:
+### Windows CMD
 
-```bash
-curl -i -X POST http://localhost:8081/api/v1/onboarding \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: test-001" \
-  -d @body.json
+```cmd
+curl -i -X POST http://localhost:8081/api/v1/onboarding ^
+  -H "Content-Type: application/json" ^
+  -H "Idempotency-Key: test-001" ^
+  -d "{\"firstName\":\"Thabo\",\"lastName\":\"Mokoena\",\"email\":\"thabo.mokoena@example.com\",\"mobileNumber\":\"0821234567\",\"nationalId\":\"9001015009087\",\"dateOfBirth\":\"1990-01-01\",\"addressLine1\":\"12 Church Street\",\"addressLine2\":\"\",\"city\":\"Polokwane\",\"province\":\"Limpopo\",\"postalCode\":\"0699\"}"
 ```
 
 Example response:
@@ -359,6 +360,214 @@ POST /api/v1/onboarding/{applicationId}/review
 Used when step-up verification results in a manual-review requirement.
 
 Invalid state transitions are rejected.
+
+---
+
+# API Tests
+
+These tests can be run against a fresh database.
+
+To reset the database when using these exact test values:
+
+```cmd
+docker compose down -v
+```
+
+Then start the stack again:
+
+```cmd
+docker compose up -d --build
+```
+
+Wait for the application to become healthy before running the tests.
+
+## Test 1 — Health Check
+
+```cmd
+curl http://localhost:8081/actuator/health
+```
+
+Expected:
+
+```text
+200 OK
+```
+
+---
+
+## Test 2 — Create Customer
+
+```cmd
+curl -i -X POST http://localhost:8081/api/v1/onboarding ^
+  -H "Content-Type: application/json" ^
+  -H "Idempotency-Key: test-001" ^
+  -d "{\"firstName\":\"Thabo\",\"lastName\":\"Mokoena\",\"email\":\"thabo.mokoena@example.com\",\"mobileNumber\":\"0821234567\",\"nationalId\":\"9001015009087\",\"dateOfBirth\":\"1990-01-01\",\"addressLine1\":\"12 Church Street\",\"addressLine2\":\"\",\"city\":\"Polokwane\",\"province\":\"Limpopo\",\"postalCode\":\"0699\"}"
+```
+
+Expected:
+
+```text
+200 OK
+```
+
+Save the returned `applicationId` for Test 5.
+
+---
+
+## Test 3 — Same Request + Same Idempotency Key
+
+Send the exact same request again:
+
+```cmd
+curl -i -X POST http://localhost:8081/api/v1/onboarding ^
+  -H "Content-Type: application/json" ^
+  -H "Idempotency-Key: test-001" ^
+  -d "{\"firstName\":\"Thabo\",\"lastName\":\"Mokoena\",\"email\":\"thabo.mokoena@example.com\",\"mobileNumber\":\"0821234567\",\"nationalId\":\"9001015009087\",\"dateOfBirth\":\"1990-01-01\",\"addressLine1\":\"12 Church Street\",\"addressLine2\":\"\",\"city\":\"Polokwane\",\"province\":\"Limpopo\",\"postalCode\":\"0699\"}"
+```
+
+Expected:
+
+```text
+200 OK
+```
+
+The original `applicationId` should be returned.
+
+This verifies idempotent replay.
+
+---
+
+## Test 4 — Same Idempotency Key + Different Request
+
+Reuse `test-001`, but change the customer:
+
+```cmd
+curl -i -X POST http://localhost:8081/api/v1/onboarding ^
+  -H "Content-Type: application/json" ^
+  -H "Idempotency-Key: test-001" ^
+  -d "{\"firstName\":\"Lerato\",\"lastName\":\"Mokoena\",\"email\":\"lerato.mokoena@example.com\",\"mobileNumber\":\"0827654321\",\"nationalId\":\"9205055800088\",\"dateOfBirth\":\"1992-05-05\",\"addressLine1\":\"25 Market Street\",\"addressLine2\":\"\",\"city\":\"Polokwane\",\"province\":\"Limpopo\",\"postalCode\":\"0699\"}"
+```
+
+Expected:
+
+```text
+409 Conflict
+```
+
+The request should be rejected because the same idempotency key was already used with a different request.
+
+---
+
+## Test 5 — Get Onboarding Application
+
+Replace `PASTE-APPLICATION-ID-HERE` with the `applicationId` returned by Test 2.
+
+```cmd
+curl -i http://localhost:8081/api/v1/onboarding/PASTE-APPLICATION-ID-HERE
+```
+
+Expected:
+
+```text
+200 OK
+```
+
+---
+
+## Test 6 — Create Second Customer
+
+Use a new idempotency key:
+
+```cmd
+curl -i -X POST http://localhost:8081/api/v1/onboarding ^
+  -H "Content-Type: application/json" ^
+  -H "Idempotency-Key: test-002" ^
+  -d "{\"firstName\":\"Lerato\",\"lastName\":\"Mokoena\",\"email\":\"lerato.mokoena@example.com\",\"mobileNumber\":\"0827654321\",\"nationalId\":\"9205055800088\",\"dateOfBirth\":\"1992-05-05\",\"addressLine1\":\"25 Market Street\",\"addressLine2\":\"\",\"city\":\"Polokwane\",\"province\":\"Limpopo\",\"postalCode\":\"0699\"}"
+```
+
+Expected:
+
+```text
+200 OK
+```
+
+A new `applicationId` should be returned.
+
+---
+
+## Test 7 — Duplicate Identity
+
+Use a new idempotency key but the same identity from Test 2:
+
+```cmd
+curl -i -X POST http://localhost:8081/api/v1/onboarding ^
+  -H "Content-Type: application/json" ^
+  -H "Idempotency-Key: test-003" ^
+  -d "{\"firstName\":\"Thabo\",\"lastName\":\"Mokoena\",\"email\":\"thabo.mokoena@example.com\",\"mobileNumber\":\"0821234567\",\"nationalId\":\"9001015009087\",\"dateOfBirth\":\"1990-01-01\",\"addressLine1\":\"12 Church Street\",\"addressLine2\":\"\",\"city\":\"Polokwane\",\"province\":\"Limpopo\",\"postalCode\":\"0699\"}"
+```
+
+Expected:
+
+```text
+409 Conflict
+```
+
+This demonstrates that identity uniqueness is separate from idempotency.
+
+---
+
+## Test 8 — Missing Idempotency-Key
+
+Send a valid-looking request without the required `Idempotency-Key` header:
+
+```cmd
+curl -i -X POST http://localhost:8081/api/v1/onboarding ^
+  -H "Content-Type: application/json" ^
+  -d "{\"firstName\":\"Sipho\",\"lastName\":\"Tester\",\"email\":\"sipho.tester@example.com\",\"mobileNumber\":\"0821111111\",\"nationalId\":\"9303035000089\",\"dateOfBirth\":\"1993-03-03\",\"addressLine1\":\"1 Test Street\",\"addressLine2\":\"\",\"city\":\"Polokwane\",\"province\":\"Limpopo\",\"postalCode\":\"0699\"}"
+```
+
+Expected:
+
+```text
+400 Bad Request
+```
+
+---
+
+## Test 9 — Invalid Request Body
+
+Send invalid customer data:
+
+```cmd
+curl -i -X POST http://localhost:8081/api/v1/onboarding ^
+  -H "Content-Type: application/json" ^
+  -H "Idempotency-Key: test-invalid-001" ^
+  -d "{\"firstName\":\"\",\"lastName\":\"\",\"email\":\"invalid-email\",\"mobileNumber\":\"\",\"nationalId\":\"\",\"dateOfBirth\":\"bad\",\"addressLine1\":\"\",\"addressLine2\":\"\",\"city\":\"\",\"province\":\"\",\"postalCode\":\"\"}"
+```
+
+Expected:
+
+```text
+400 Bad Request
+```
+
+---
+
+## API Test Summary
+
+| Test | Scenario                            | Expected |
+| ---- | ----------------------------------- | -------- |
+| 1    | Health check                        | `200`    |
+| 2    | Create customer                     | `200`    |
+| 3    | Same request + same idempotency key | `200`    |
+| 4    | Same key + different request        | `409`    |
+| 5    | Get application                     | `200`    |
+| 6    | Create second customer              | `200`    |
+| 7    | Duplicate identity                  | `409`    |
+| 8    | Missing Idempotency-Key             | `400`    |
+| 9    | Invalid request body                | `400`    |
+
+No JSON files are required for these tests.
 
 ---
 
