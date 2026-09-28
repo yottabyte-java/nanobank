@@ -21,6 +21,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -427,5 +428,69 @@ class IdentityOnboardingIntegrationTest {
                 "integration-refer-reference",
                 "Additional verification required"
         );
+    }
+    @Test
+    void shouldReturn400WhenIdempotencyKeyIsMissing() throws Exception {
+
+        String request = """
+                {
+                  "firstName": "Wayne",
+                  "lastName": "NoKey",
+                  "dateOfBirth": "1998-05-10",
+                  "email": "wayne.nokey@example.com",
+                  "mobileNumber": "0821234599",
+                  "nationalId": "9805105000099",
+                  "addressLine1": "1 Test Street",
+                  "addressLine2": "",
+                  "city": "Polokwane",
+                  "province": "Limpopo",
+                  "postalCode": "0700"
+                }
+                """;
+
+        mockMvc.perform(
+                        post("/api/v1/onboarding")
+                                .contentType("application/json")
+                                .content(request)
+                )
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code")
+                        .value("MISSING_REQUIRED_HEADER"));
+    }
+
+    @Test
+    void shouldReturn400WhenApplicationIdIsNotAUuid() throws Exception {
+
+        mockMvc.perform(
+                        get("/api/v1/onboarding/not-a-uuid")
+                )
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code")
+                        .value("INVALID_PARAMETER"));
+    }
+
+    @Test
+    void shouldReturn400WhenRequestBodyFailsValidation() throws Exception {
+
+        String request = """
+                {
+                  "firstName": "",
+                  "lastName": "",
+                  "email": "not-an-email"
+                }
+                """;
+
+        mockMvc.perform(
+                        post("/api/v1/onboarding")
+                                .header(
+                                        "Idempotency-Key",
+                                        "validation-001"
+                                )
+                                .contentType("application/json")
+                                .content(request)
+                )
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code")
+                        .value("VALIDATION_FAILED"));
     }
 }
